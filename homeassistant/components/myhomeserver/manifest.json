@@ -1,0 +1,24 @@
+{
+  "domain": "myhomeserver",
+  "name": "MyHomeSERVER",
+  "config_flow": true,
+  "documentation": "https://www.home-assistant.io/integrations/myhomeserver",
+  "requirements": [
+    "myhome==0.2.2"
+  ],
+  "ssdp": [
+    {
+      "st": "urn:schemas-bticino-it:device:myhomeserver1:1"
+    }
+  ],
+  "zeroconf": [],
+  "homekit": {},
+  "dependencies": [
+    "network"
+  ],
+  "codeowners": [
+    "@speijnik"
+  ],
+  "iot_class": "local_polling",
+  "version": "0.1.0"
+}
