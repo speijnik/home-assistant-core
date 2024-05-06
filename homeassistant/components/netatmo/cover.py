@@ -46,12 +46,6 @@ async def async_setup_entry(
 class NetatmoCover(NetatmoModuleEntity, CoverEntity):
     """Representation of a Netatmo cover device."""
 
-    _attr_supported_features = (
-        CoverEntityFeature.OPEN
-        | CoverEntityFeature.CLOSE
-        | CoverEntityFeature.STOP
-        | CoverEntityFeature.SET_POSITION
-    )
     _attr_configuration_url = CONF_URL_CONTROL
     _attr_device_class = CoverDeviceClass.SHUTTER
     _attr_name = None
@@ -61,7 +55,24 @@ class NetatmoCover(NetatmoModuleEntity, CoverEntity):
         """Initialize the Netatmo device."""
         super().__init__(netatmo_device)
 
-        self._attr_is_closed = self.device.current_position == 0
+        # Some modules such as BNAS do not support SET_POSITION
+        # We can detect this by checking their target_position__step property.
+        # The property defines the step size when setting the position.
+        # As such, a step size of 100 means setting exact positions is not
+        # supported.
+        self._attr_supported_features = (
+            CoverEntityFeature.OPEN
+            | CoverEntityFeature.CLOSE
+            | CoverEntityFeature.STOP
+        )
+
+        if self.device.target_position__step is not None and self.device.target_position__step < 100:
+            self._attr_supported_features |= CoverEntityFeature.SET_POSITION
+            self._attr_is_closed = self.device.current_position == 0
+            self._attr_current_cover_position = self.device.current_position
+        else:
+            self._attr_is_closed = None
+            self._attr_current_cover_position = None
 
         self._signal_name = f"{HOME}-{self.home.entity_id}"
         self._publishers.extend(
@@ -78,17 +89,23 @@ class NetatmoCover(NetatmoModuleEntity, CoverEntity):
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Close the cover."""
         await self.device.async_close()
-        self._attr_is_closed = True
+        self._attr_is_closing = True
+        self._attr_is_opening = False
+        self._attr_is_closed = False
         self.async_write_ha_state()
 
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover."""
         await self.device.async_open()
+        self._attr_is_closing = False
+        self._attr_is_opening = True
         self._attr_is_closed = False
         self.async_write_ha_state()
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Stop the cover."""
+        self._attr_is_closing = self._attr_is_opening = False
+        self._attr_is_closed = False
         await self.device.async_stop()
 
     async def async_set_cover_position(self, **kwargs: Any) -> None:
@@ -98,5 +115,19 @@ class NetatmoCover(NetatmoModuleEntity, CoverEntity):
     @callback
     def async_update_callback(self) -> None:
         """Update the entity's state."""
-        self._attr_is_closed = self.device.current_position == 0
-        self._attr_current_cover_position = self.device.current_position
+
+        if self.device.target_position__step is not None and self.device.target_position__step < 100:
+            self._attr_is_closed = self.device.current_position == 0
+            self._attr_current_cover_position = self.device.current_position
+            self._attr_is_opening = self.device.target_position > self.device.current_position
+            self._attr_is_closing = self.device.target_position < self.device.current_position
+        else:
+            # For devices with a target position step of 100 the target position is reported as
+            # * 0 - closing
+            # * 50 - stopped
+            # * 100 - opening
+            self._attr_is_closing = self.device.target_position == 0
+            self._attr_is_opening = self.device.target_position == 100
+            self._attr_current_cover_position = None
+            self._attr_is_closed = None
+
