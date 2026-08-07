@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .const import CONF_URL_CONTROL, NETATMO_CREATE_BUTTON
 from .coordinator import HOME, SIGNAL_NAME, NetatmoConfigEntry, NetatmoDevice
 from .entity import NetatmoReachabilityEntity
-from .helper import device_type_to_str
+from .helper import device_type_to_str, shutter_rejects_preferred_position
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +29,9 @@ async def async_setup_entry(
 
     @callback
     def _create_entity(netatmo_device: NetatmoDevice) -> None:
+        if shutter_rejects_preferred_position(netatmo_device.device):
+            return
+
         entity = NetatmoCoverPreferredPositionButton(netatmo_device)
         _LOGGER.debug("Adding button %s", entity)
         async_add_entities([entity])

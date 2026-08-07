@@ -540,6 +540,56 @@ async def test_setup_component_invalid_token_scope(hass: HomeAssistant) -> None:
         await hass.config_entries.async_remove(config_entry.entry_id)
 
 
+async def test_setup_component_missing_optional_scopes(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    netatmo_auth: AsyncMock,
+) -> None:
+    """Test setup succeeds and starts a reauth flow for missing scopes.
+
+    A partial scope grant (some but not all requested scopes approved) must
+    not block setup - some Netatmo apps never get every requested scope
+    approved, so a strict full-coverage check would put a legitimately
+    reduced grant into a permanent reauth loop. Instead, setup succeeds
+    with the reduced grant and a reauth flow is started automatically so
+    the account can be re-linked to pick up the missing scopes.
+    """
+    token_scopes = sorted(set(ALL_SCOPES) - {"read_mhs1", "write_mhs1"})
+    hass.config_entries.async_update_entry(
+        config_entry,
+        data={
+            **config_entry.data,
+            "token": {**config_entry.data["token"], "scope": token_scopes},
+        },
+    )
+
+    with selected_platforms([Platform.COVER]):
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert config_entry.state is ConfigEntryState.LOADED
+    active_flows = list(config_entry.async_get_active_flows(hass, {"reauth"}))
+    assert len(active_flows) == 1
+
+    # Dismiss the flow, as if the user closed it without completing it.
+    hass.config_entries.flow.async_abort(active_flows[0]["flow_id"])
+
+    # Re-linking with the full scope grant does not start another reauth flow.
+    hass.config_entries.async_update_entry(
+        config_entry,
+        data={
+            **config_entry.data,
+            "token": {**config_entry.data["token"], "scope": ALL_SCOPES},
+        },
+    )
+    with selected_platforms([Platform.COVER]):
+        await hass.config_entries.async_reload(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert not list(config_entry.async_get_active_flows(hass, {"reauth"}))
+
+
 async def test_setup_component_invalid_token(
     hass: HomeAssistant, config_entry: MockConfigEntry
 ) -> None:

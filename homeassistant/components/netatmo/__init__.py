@@ -70,13 +70,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: NetatmoConfigEntry) -> b
     except (OAuth2TokenRequestError, ClientError) as ex:
         raise ConfigEntryNotReady from ex
 
-    required_scopes = api.get_api_scopes(entry.data["auth_implementation"])
-    if not (set(session.token["scope"]) & set(required_scopes)):
-        _LOGGER.warning(
-            "Session is missing scopes: %s",
-            set(required_scopes) - set(session.token["scope"]),
-        )
+    required_scopes = set(api.get_api_scopes(entry.data["auth_implementation"]))
+    token_scopes = set(session.token["scope"])
+    if not (token_scopes & required_scopes):
+        _LOGGER.warning("Session is missing scopes: %s", required_scopes - token_scopes)
         raise ConfigEntryAuthFailed("Token scope not valid, trigger renewal")
+
+    if missing_scopes := required_scopes - token_scopes:
+        _LOGGER.warning(
+            "Session is missing scopes: %s; requesting reauthentication to grant them",
+            missing_scopes,
+        )
+        entry.async_start_reauth(hass)
 
     auth = api.AsyncConfigEntryNetatmoAuth(
         aiohttp_client.async_get_clientsession(hass), session
